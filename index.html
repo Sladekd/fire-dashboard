@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fire Ignition Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg: #0d1117; --surface: #161b22; --border: #21262d; --text: #e6edf3; --muted: #7d8590; }
+  body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; font-size:14px; min-height:100vh; padding:32px 24px 64px; }
+  header { max-width:1100px; margin:0 auto 36px; }
+  header h1 { font-size:clamp(18px,3vw,26px); font-weight:600; letter-spacing:-0.3px; }
+  header p { color:var(--muted); margin-top:6px; font-size:13px; font-weight:300; }
+  .controls { max-width:1100px; margin:0 auto 28px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .controls label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .legend-btn { display:flex; align-items:center; gap:6px; background:var(--surface);
+    border:1px solid var(--border); border-radius:6px; padding:5px 12px; cursor:pointer;
+    font-family:inherit; font-size:12px; color:var(--muted); transition:opacity .15s,color .15s; }
+  .legend-btn.active { color:var(--text); }
+  .legend-btn .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .axis-select { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  select { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); font-family:inherit; font-size:12px; padding:5px 26px 5px 10px;
+    cursor:pointer; outline:none; appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237d8590'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center; }
+  .chart-wrap { max-width:1100px; margin:0 auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; position:relative; min-height:200px; }
+  canvas { display:block; width:100% !important; }
+  #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:13px; color:var(--muted); border-radius:12px; }
+  #error-msg { display:none; position:absolute; inset:0; align-items:center; justify-content:center;
+    font-size:13px; color:#ff4b4b; border-radius:12px; text-align:center; padding:20px; }
+  .stat-row { max-width:1100px; margin:20px auto 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+  .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 20px; }
+  .stat-card .cat-label { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .stat-card .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .stat-card .count { font-size:28px; font-weight:600; font-family:monospace; line-height:1; }
+  .stat-card .sub { font-size:11px; color:var(--muted); margin-top:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fire Ignition — Thermal &amp; Temporal Analysis</h1>
+  <p>Hour of occurrence vs. Heat Index Level, coloured by ignition cause. Toggle categories to compare.</p>
+</header>
+<div class="controls">
+  <div class="legend" id="legend"></div>
+  <div class="axis-select">
+    <label for="xAxis">X axis</label>
+    <select id="xAxis">
+      <option value="hindex" selected>Heat Index Level</option>
+      <option value="hour">Hour of Day</option>
+    </select>
+    <label for="yAxis">Y axis</label>
+    <select id="yAxis">
+      <option value="hour" selected>Hour of Day</option>
+      <option value="hindex">Heat Index Level</option>
+    </select>
+  </div>
+</div>
+<div class="chart-wrap">
+  <div id="loading">Loading data…</div>
+  <div id="error-msg"></div>
+  <canvas id="chart" height="480" style="display:none"></canvas>
+</div>
+<div class="stat-row" id="stats"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+  var CATEGORY_META = {
+    'lightning':   { label: 'Lightning',                color: '#f7c948' },
+    'arson':       { label: 'Arson',                    color: '#ff4b4b' },
+    'cigarette butt':  { label: 'Cigarette butt',       color: '#ff9f43' },
+    'match or lighter':{ label: 'Match / lighter',      color: '#fd79a8' },
+    'setting fires in nature and in landfills, burning grasses':
+                   { label: 'Burning grasses / landfill', color: '#55efc4' },
+    'unknown':     { label: 'Unknown',                  color: '#a78bfa' },
+    'others':      { label: 'Others',                   color: '#b2bec3' }
+  };
+
+  var DEFAULT_COLOR = '#888888';
+  var AXIS_LABELS = { hindex: 'Heat Index Level (1–6)', hour: 'Hour of Day (0–23)' };
+
+  var FIRE_DATA = [];
+  var active = {};
+  var xField = 'hindex', yField = 'hour';
+  var chart = null;
+  var allCategories = [];
+
+  // ── Load CSV ─────────────────────────────────────────────────────────────
+  Papa.parse('fires_github.csv', {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete: function (results) {
+      if (!results.data || results.data.length === 0) {
+        showError('CSV loaded but contained no rows. Check the file.');
+        return;
+      }
+
+      // Detect column names (case-insensitive)
+      var sample = results.data[0];
+      var keys = Object.keys(sample);
+      var catCol    = findCol(keys, ['CATEGORY', 'category', 'Category']);
+      var hourCol   = findCol(keys, ['Hour', 'hour', 'HOUR']);
+      var hindexCol = findCol(keys, ['HINDEX_L1', 'hindex_l1', 'hindex', 'HINDEX']);
+
+      if (!catCol || !hourCol || !hindexCol) {
+        showError('Could not find required columns. Found: ' + keys.join(', '));
+        return;
+      }
+
+      // Parse rows
+      results.data.forEach(function (row) {
+        var cat    = (row[catCol] || '').trim().toLowerCase();
+        var hour   = parseInt(row[hourCol], 10);
+        var hindex = parseInt(row[hindexCol], 10);
+        if (cat && !isNaN(hour) && !isNaN(hindex)) {
+          FIRE_DATA.push({ category: cat, hour: hour, hindex: hindex });
+        }
+      });
+
+      if (FIRE_DATA.length === 0) {
+        showError('No valid rows found after parsing. Check CATEGORY, Hour, HINDEX_L1 values.');
+        return;
+      }
+
+      // Collect unique categories from actual data
+      var seen = {};
+      FIRE_DATA.forEach(function (r) {
+        if (!seen[r.category]) { seen[r.category] = true; allCategories.push(r.category); }
+      });
+
+      allCategories.forEach(function (k) { active[k] = true; });
+
+      buildLegend();
+      initChart();
+      render();
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('chart').style.display = 'block';
+    },
+    error: function (err) {
+      showError('Failed to load fires_github.csv — make sure the file is in the repo root.\n(' + err + ')');
+    }
+  });
+
+  function findCol(keys, candidates) {
+    for (var i = 0; i < candidates.length; i++) {
+      if (keys.indexOf(candidates[i]) !== -1) return candidates[i];
+    }
+    return null;
+  }
+
+  function showError(msg) {
+    document.getElementById('loading').style.display = 'none';
+    var el = document.getElementById('error-msg');
+    el.style.display = 'flex';
+    el.textContent = msg;
+  }
+
+  function getMeta(cat) {
+    return CATEGORY_META[cat] || { label: cat, color: DEFAULT_COLOR };
+  }
+
+  // ── Legend ────────────────────────────────────────────────────────────────
+  function buildLegend() {
+    var legendEl = document.getElementById('legend');
+    legendEl.innerHTML = '';
+    allCategories.forEach(function (key) {
+      var meta = getMeta(key);
+      var btn = document.createElement('button');
+      btn.className = 'legend-btn active';
+      btn.dataset.cat = key;
+      btn.innerHTML = '<span class="dot" style="background:' + meta.color + '"></span>' + meta.label;
+      btn.addEventListener('click', function () {
+        active[key] = !active[key];
+        btn.classList.toggle('active', active[key]);
+        btn.style.opacity = active[key] ? '1' : '0.35';
+        render();
+      });
+      legendEl.appendChild(btn);
+    });
+  }
+
+  document.getElementById('xAxis').addEventListener('change', function (e) { xField = e.target.value; render(); });
+  document.getElementById('yAxis').addEventListener('change', function (e) { yField = e.target.value; render(); });
+
+  // ── Chart ─────────────────────────────────────────────────────────────────
+  function jitter(v, amt) { return v + (Math.random() - 0.5) * amt; }
+
+  function initChart() {
+    var ctx = document.getElementById('chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'scatter',
+      data: { datasets: [] },
+      options: {
+        animation: { duration: 250 },
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+            titleColor: '#e6edf3', bodyColor: '#7d8590', padding: 10,
+            callbacks: {
+              title: function () { return ''; },
+              label: function (ctx) {
+                var d = ctx.raw;
+                return ['Category: ' + d.cat, 'Hour: ' + d.origY, 'Heat Index: ' + d.origX];
+              }
+            }
+          }
+        },
+        scales: {
+          x: { title:{display:true,text:AXIS_LABELS[xField],color:'#7d8590',font:{size:11}},
+               grid:{color:'#21262d'}, ticks:{color:'#7d8590',font:{size:11}} },
+          y: { title:{display:true,text:AXIS_LABELS[yField],color:'#7d8590',font:{size:11}},
+               grid:{color:'#21262d'}, ticks:{color:'#7d8590',font:{size:11}} }
+        }
+      }
+    });
+    resizeCanvas();
+    window.addEventListener('resize', function () { resizeCanvas(); chart.resize(); });
+  }
+
+  function buildDatasets() {
+    var jx = xField === 'hindex' ? 0.08 : 0.35;
+    var jy = yField === 'hour'   ? 0.30 : 0.08;
+    return allCategories
+      .filter(function (k) { return active[k]; })
+      .map(function (key) {
+        var meta = getMeta(key);
+        var rows = FIRE_DATA.filter(function (r) { return r.category === key; });
+        return {
+          label: meta.label,
+          data: rows.map(function (r) {
+            return { x: jitter(r[xField], jx), y: jitter(r[yField], jy),
+                     origX: r.hindex, origY: r.hour, cat: meta.label };
+          }),
+          backgroundColor: meta.color,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        };
+      });
+  }
+
+  function updateStats() {
+    var el = document.getElementById('stats');
+    el.innerHTML = '';
+    allCategories.forEach(function (key) {
+      var meta = getMeta(key);
+      var cnt = FIRE_DATA.filter(function (r) { return r.category === key; }).length;
+      var pct = ((cnt / FIRE_DATA.length) * 100).toFixed(1);
+      var card = document.createElement('div');
+      card.className = 'stat-card';
+      card.innerHTML =
+        '<div class="cat-label"><span class="dot" style="background:' + meta.color + '"></span>' + meta.label + '</div>' +
+        '<div class="count" style="color:' + meta.color + (active[key] ? '">' : ';opacity:.3">') + cnt.toLocaleString() + '</div>' +
+        '<div class="sub">' + pct + '% of incidents</div>';
+      el.appendChild(card);
+    });
+  }
+
+  function render() {
+    if (!chart) return;
+    chart.data.datasets = buildDatasets();
+    chart.options.scales.x.title.text = AXIS_LABELS[xField];
+    chart.options.scales.y.title.text = AXIS_LABELS[yField];
+    if (xField === 'hindex') {
+      chart.options.scales.x.min = 0.5; chart.options.scales.x.max = 6.5;
+      chart.options.scales.x.ticks = { color:'#7d8590', font:{size:11}, stepSize:1 };
+    } else {
+      chart.options.scales.x.min = -1; chart.options.scales.x.max = 24;
+      chart.options.scales.x.ticks = { color:'#7d8590', font:{size:11}, stepSize:3 };
+    }
+    if (yField === 'hour') {
+      chart.options.scales.y.min = -1; chart.options.scales.y.max = 24;
+      chart.options.scales.y.ticks = { color:'#7d8590', font:{size:11}, stepSize:3 };
+    } else {
+      chart.options.scales.y.min = 0.5; chart.options.scales.y.max = 6.5;
+      chart.options.scales.y.ticks = { color:'#7d8590', font:{size:11}, stepSize:1 };
+    }
+    chart.update();
+    updateStats();
+  }
+
+  function resizeCanvas() {
+    var w = document.querySelector('.chart-wrap').clientWidth;
+    document.getElementById('chart').style.height = Math.max(340, Math.round(w * 0.44)) + 'px';
+  }
+
+});
+</script>
+</body>
+</html>
