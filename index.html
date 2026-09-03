@@ -72,14 +72,14 @@
 document.addEventListener('DOMContentLoaded', function () {
 
   var CATEGORY_META = {
-    'lightning':   { label: 'Lightning',                color: '#f7c948' },
-    'arson':       { label: 'Arson',                    color: '#ff4b4b' },
-    'cigarette butt':  { label: 'Cigarette butt',       color: '#ff9f43' },
-    'match or lighter':{ label: 'Match / lighter',      color: '#fd79a8' },
+    'lightning':         { label: 'Lightning',                 color: '#f7c948' },
+    'arson':             { label: 'Arson',                     color: '#ff4b4b' },
+    'cigarette butt':    { label: 'Cigarette butt',            color: '#ff9f43' },
+    'match or lighter':  { label: 'Match / lighter',           color: '#fd79a8' },
     'setting fires in nature and in landfills, burning grasses':
-                   { label: 'Burning grasses / landfill', color: '#55efc4' },
-    'unknown':     { label: 'Unknown',                  color: '#a78bfa' },
-    'others':      { label: 'Others',                   color: '#b2bec3' }
+                         { label: 'Burning grasses / landfill', color: '#55efc4' },
+    'unknown':           { label: 'Unknown',                   color: '#a78bfa' },
+    'others':            { label: 'Others',                    color: '#b2bec3' }
   };
 
   var DEFAULT_COLOR = '#888888';
@@ -102,24 +102,29 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
       }
 
-      // Detect column names (case-insensitive)
+      // Detect column names safely (case-insensitive and trimmed)
       var sample = results.data[0];
-      var keys = Object.keys(sample);
-      var catCol    = findCol(keys, ['CATEGORY', 'category', 'Category']);
-      var hourCol   = findCol(keys, ['Hour', 'hour', 'HOUR']);
-      var hindexCol = findCol(keys, ['HINDEX_L1', 'hindex_l1', 'hindex', 'HINDEX']);
+      var rawKeys = Object.keys(sample);
+      var keyMap = {};
+      rawKeys.forEach(function(k) { keyMap[k.trim().toLowerCase()] = k; });
+
+      var catCol    = keyMap['category'] || keyMap['pricina'];
+      var hourCol   = keyMap['hour'];
+      var hindexCol = keyMap['hindex_l1'] || keyMap['hindex'];
 
       if (!catCol || !hourCol || !hindexCol) {
-        showError('Could not find required columns. Found: ' + keys.join(', '));
+        showError('Could not find required columns. Found: ' + rawKeys.join(', '));
         return;
       }
 
       // Parse rows
       results.data.forEach(function (row) {
-        var cat    = (row[catCol] || '').trim().toLowerCase();
+        var rawCat = row[catCol];
+        var cat = rawCat ? String(rawCat).trim().toLowerCase() : 'unknown';
         var hour   = parseInt(row[hourCol], 10);
         var hindex = parseInt(row[hindexCol], 10);
-        if (cat && !isNaN(hour) && !isNaN(hindex)) {
+
+        if (!isNaN(hour) && !isNaN(hindex)) {
           FIRE_DATA.push({ category: cat, hour: hour, hindex: hindex });
         }
       });
@@ -149,13 +154,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  function findCol(keys, candidates) {
-    for (var i = 0; i < candidates.length; i++) {
-      if (keys.indexOf(candidates[i]) !== -1) return candidates[i];
-    }
-    return null;
-  }
-
   function showError(msg) {
     document.getElementById('loading').style.display = 'none';
     var el = document.getElementById('error-msg');
@@ -164,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function getMeta(cat) {
-    return CATEGORY_META[cat] || { label: cat, color: DEFAULT_COLOR };
+    return CATEGORY_META[cat] || { label: cat.charAt(0).toUpperCase() + cat.slice(1), color: DEFAULT_COLOR };
   }
 
   // ── Legend ────────────────────────────────────────────────────────────────
