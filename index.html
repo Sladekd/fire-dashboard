@@ -442,6 +442,34 @@ fetch('fires_github.csv')
 // parse & render
 renderChart(csv)
 })
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length === 0) return [];
+  
+  const headers = parseCSVRow(lines[0]);
+  
+  return lines.slice(1).map(line => {
+    const values = parseCSVRow(line);
+    let row = {};
+    headers.forEach((h, i) => { 
+      row[h] = values[i] !== undefined ? values[i].trim() : ""; 
+    });
+    
+    // Map columns from your dataset structure
+    const cause = (row["pricina"] || row["CATEGORY"] || "unknown").toLowerCase();
+    let cat = "unknown";
+    if (cause.includes("arson") || cause.includes("úmysl")) cat = "arson";
+    else if (cause.includes("lightning") || cause.includes("blesk")) cat = "lightning";
+    else if (cause.includes("nedbalost") || cause.includes("human")) cat = "human";
+    else if (cause.includes("accident")) cat = "accident";
+
+    return {
+      category: cat,
+      hour: parseInt(row["Hour"] || row["hour"] || 0, 10),
+      hindex: parseInt(row["HINDEX_L1"] || 1, 10)
+    };
+  });
+}
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 const active = Object.fromEntries(Object.keys(CATEGORIES).map(k => [k, true]));
