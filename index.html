@@ -471,6 +471,25 @@ function parseCSV(text) {
   });
 }
 
+function parseCSVRow(rowStr) {
+  let fields = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < rowStr.length; i++) {
+    let c = rowStr[i];
+    if (c === '"') {
+      inQuotes = !inQuotes;
+    } else if (c === ',' && !inQuotes) {
+      fields.push(field.trim().replace(/^["']|["']$/g, ""));
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  fields.push(field.trim().replace(/^["']|["']$/g, ""));
+  return fields;
+}
+
 // ─── STATE ───────────────────────────────────────────────────────────────────
 const active = Object.fromEntries(Object.keys(CATEGORIES).map(k => [k, true]));
 let xField = "hindex", yField = "hour";
