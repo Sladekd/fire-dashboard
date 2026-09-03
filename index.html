@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fire Ignition Analysis</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #0d1117;
+    --surface:    #161b22;
+    --border:     #21262d;
+    --text:       #e6edf3;
+    --muted:      #7d8590;
+    --lightning:  #f7c948;
+    --arson:      #ff4b4b;
+    --human:      #4fc3f7;
+    --accident:   #69db7c;
+    --unknown:    #a78bfa;
+    --dot-r: 5px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+
+  header {
+    max-width: 1100px;
+    margin: 0 auto 36px;
+  }
+  header h1 {
+    font-size: clamp(18px, 3vw, 26px);
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    line-height: 1.2;
+    color: var(--text);
+  }
+  header p {
+    color: var(--muted);
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 300;
+  }
+
+  .controls {
+    max-width: 1100px;
+    margin: 0 auto 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .controls label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-right: 4px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .legend-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    transition: border-color .15s, color .15s, opacity .15s;
+  }
+  .legend-btn.active { color: var(--text); }
+  .legend-btn .dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-btn[data-cat="arson"] .dot   { border-radius: 0; transform: rotate(45deg); }
+
+  .axis-select {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237d8590'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  .chart-wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+  }
+
+  canvas {
+    display: block;
+    width: 100% !important;
+  }
+
+  .stat-row {
+    max-width: 1100px;
+    margin: 20px auto 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .stat-card .cat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-card .cat-label .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stat-card .count {
+    font-size: 28px;
+    font-weight: 600;
+    font-family: 'DM Mono', monospace;
+    line-height: 1;
+  }
+  .stat-card .sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  footer {
+    max-width: 1100px;
+    margin: 32px auto 0;
+    font-size: 11px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Fire Ignition — Thermal &amp; Temporal Analysis</h1>
+  <p>Hour of occurrence vs. Heat Index Level, coloured by ignition cause. Toggle categories to compare.</p>
+</header>
+
+<div class="controls">
+  <div class="legend" id="legend"></div>
+  <div class="axis-select">
+    <label for="xAxis">X axis</label>
+    <select id="xAxis">
+      <option value="hindex" selected>Heat Index Level</option>
+      <option value="hour">Hour of Day</option>
+    </select>
+    <label for="yAxis">Y axis</label>
+    <select id="yAxis">
+      <option value="hour" selected>Hour of Day</option>
+      <option value="hindex">Heat Index Level</option>
+    </select>
+  </div>
+</div>
+
+<div class="chart-wrap">
+  <canvas id="chart" height="480"></canvas>
+</div>
+
+<div class="stat-row" id="stats"></div>
+
+<footer>
+  Replace the <code>FIRE_DATA</code> array in the &lt;script&gt; with your real dataset. Fields: <code>category</code>, <code>hour</code> (0–23), <code>hindex</code> (1–6).
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+// Replace this with your real records. Each object needs: category, hour, hindex
+const CATEGORIES = {
+  lightning: { label: "Lightning",      color: "#f7c948", shape: "circle" },
+  arson:     { label: "Arson",          color: "#ff4b4b", shape: "triangle" },
+  human:     { label: "Human accident", color: "#4fc3f7", shape: "circle" },
+  accident:  { label: "Equipment",      color: "#69db7c", shape: "circle" },
+  unknown:   { label: "Unknown",        color: "#a78bfa", shape: "circle" },
+};
+
+function generateSample(cat, n, hMean, hStd, hourMean, hourStd) {
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const hindex = Math.min(6, Math.max(1, Math.round(hMean + (Math.random()-0.5)*hStd*2)));
+    const hour   = Math.min(23, Math.max(0, Math.round(hourMean + (Math.random()-0.5)*hourStd*2)));
+    rows.push({ category: cat, hindex, hour });
+  }
+  return rows;
+}
+
+const FIRE_DATA = [
+  ...generateSample("lightning", 280, 4.5, 1.2, 14, 4),
+  ...generateSample("arson",     210, 2.5, 1.5, 21, 3),
+  ...generateSample("human",     190, 3.0, 1.3, 12, 5),
+  ...generateSample("accident",  140, 3.5, 1.0, 10, 4),
+  ...generateSample("unknown",   100, 3.0, 1.5, 13, 6),
+];
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+const active = Object.fromEntries(Object.keys(CATEGORIES).map(k => [k, true]));
+let xField = "hindex", yField = "hour";
+
+// ─── LEGEND BUTTONS ──────────────────────────────────────────────────────────
+const legendEl = document.getElementById("legend");
+Object.entries(CATEGORIES).forEach(([key, meta]) => {
+  const btn = document.createElement("button");
+  btn.className = "legend-btn active";
+  btn.dataset.cat = key;
+  btn.innerHTML = `<span class="dot" style="background:${meta.color}"></span>${meta.label}`;
+  btn.addEventListener("click", () => {
+    active[key] = !active[key];
+    btn.classList.toggle("active", active[key]);
+    btn.style.opacity = active[key] ? "1" : "0.4";
+    render();
+  });
+  legendEl.appendChild(btn);
+});
+
+// ─── AXIS SELECTS ────────────────────────────────────────────────────────────
+document.getElementById("xAxis").addEventListener("change", e => { xField = e.target.value; render(); });
+document.getElementById("yAxis").addEventListener("change", e => { yField = e.target.value; render(); });
+
+// ─── CHART ───────────────────────────────────────────────────────────────────
+const ctx = document.getElementById("chart").getContext("2d");
+
+function jitter(v, amt) { return v + (Math.random() - 0.5) * amt; }
+
+const AXIS_LABELS = { hindex: "Heat Index Level (1–6)", hour: "Hour of Day (0–23)" };
+
+let chart = new Chart(ctx, {
+  type: "scatter",
+  data: { datasets: [] },
+  options: {
+    animation: { duration: 300 },
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: "#1c2128",
+        borderColor: "#30363d",
+        borderWidth: 1,
+        titleColor: "#e6edf3",
+        bodyColor: "#7d8590",
+        padding: 10,
+        callbacks: {
+          label: (ctx) => {
+            const d = ctx.raw;
+            return [
+              `Category: ${d.cat}`,
+              `Hour: ${d.origY}`,
+              `Heat Index: ${d.origX}`,
+            ];
+          },
+          title: () => ""
+        }
+      }
+    },
+    scales: {
+      x: {
+        title: { display: true, text: AXIS_LABELS[xField], color: "#7d8590", font: { size: 11 } },
+        grid: { color: "#21262d" },
+        ticks: { color: "#7d8590", font: { size: 11 } },
+      },
+      y: {
+        title: { display: true, text: AXIS_LABELS[yField], color: "#7d8590", font: { size: 11 } },
+        grid: { color: "#21262d" },
+        ticks: { color: "#7d8590", font: { size: 11 } },
+      }
+    }
+  }
+});
+
+// Triangle point style via plugin
+const trianglePlugin = {
+  id: "trianglePoints",
+  beforeDatasetDraw(chart, args) {
+    const meta = args.meta;
+    const ds = chart.data.datasets[args.index];
+    if (!ds._isTriangle) return;
+    const ctx = chart.ctx;
+    meta.data.forEach(point => {
+      const { x, y } = point.getProps(["x","y"], true);
+      const r = 6;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r, y + r * 0.7);
+      ctx.lineTo(x - r, y + r * 0.7);
+      ctx.closePath();
+      ctx.fillStyle = ds.backgroundColor;
+      ctx.globalAlpha = 0.65;
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+};
+Chart.register(trianglePlugin);
+
+function buildDatasets() {
+  const jx = xField === "hindex" ? 0.08 : 0.35;
+  const jy = yField === "hour"   ? 0.3  : 0.08;
+
+  return Object.entries(CATEGORIES)
+    .filter(([k]) => active[k])
+    .map(([key, meta]) => {
+      const rows = FIRE_DATA.filter(r => r.category === key);
+      const isTriangle = meta.shape === "triangle";
+      return {
+        label: meta.label,
+        _isTriangle: isTriangle,
+        data: rows.map(r => ({
+          x: jitter(r[xField], jx),
+          y: jitter(r[yField], jy),
+          origX: r.hindex,
+          origY: r.hour,
+          cat: meta.label,
+        })),
+        backgroundColor: meta.color,
+        pointRadius: isTriangle ? 0 : 5,
+        pointHoverRadius: isTriangle ? 0 : 7,
+      };
+    });
+}
+
+function updateStats() {
+  const statsEl = document.getElementById("stats");
+  statsEl.innerHTML = "";
+  Object.entries(CATEGORIES).forEach(([key, meta]) => {
+    const cnt = FIRE_DATA.filter(r => r.category === key).length;
+    const card = document.createElement("div");
+    card.className = "stat-card";
+    card.innerHTML = `
+      <div class="cat-label">
+        <span class="dot" style="background:${meta.color}"></span>
+        ${meta.label}
+      </div>
+      <div class="count" style="color:${meta.color}">${active[key] ? cnt.toLocaleString() : "<span style='opacity:.3'>"+cnt.toLocaleString()+"</span>"}</div>
+      <div class="sub">${((cnt/FIRE_DATA.length)*100).toFixed(1)}% of incidents</div>
+    `;
+    statsEl.appendChild(card);
+  });
+}
+
+function render() {
+  chart.data.datasets = buildDatasets();
+  chart.options.scales.x.title.text = AXIS_LABELS[xField];
+  chart.options.scales.y.title.text = AXIS_LABELS[yField];
+
+  if (xField === "hindex") {
+    chart.options.scales.x.min = 0.5; chart.options.scales.x.max = 6.5;
+    chart.options.scales.x.ticks = { color:"#7d8590", font:{size:11}, stepSize:1 };
+  } else {
+    chart.options.scales.x.min = -1; chart.options.scales.x.max = 24;
+    chart.options.scales.x.ticks = { color:"#7d8590", font:{size:11}, stepSize:3 };
+  }
+  if (yField === "hour") {
+    chart.options.scales.y.min = -1; chart.options.scales.y.max = 24;
+    chart.options.scales.y.ticks = { color:"#7d8590", font:{size:11}, stepSize:3 };
+  } else {
+    chart.options.scales.y.min = 0.5; chart.options.scales.y.max = 6.5;
+    chart.options.scales.y.ticks = { color:"#7d8590", font:{size:11}, stepSize:1 };
+  }
+
+  chart.update();
+  updateStats();
+}
+
+// Initial draw
+render();
+// Make canvas height responsive
+function resizeCanvas() {
+  const w = document.querySelector(".chart-wrap").clientWidth;
+  document.getElementById("chart").style.height = Math.max(340, Math.round(w * 0.44)) + "px";
+}
+window.addEventListener("resize", () => { resizeCanvas(); chart.resize(); });
+resizeCanvas();
+</script>
+</body>
+</html>
