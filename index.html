@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fire Ignition Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg: #0d1117; --surface: #161b22; --border: #21262d; --text: #e6edf3; --muted: #7d8590; }
+  body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; font-size:14px; min-height:100vh; padding:32px 24px 64px; }
+  header { max-width:1100px; margin:0 auto 36px; }
+  header h1 { font-size:clamp(18px,3vw,26px); font-weight:600; letter-spacing:-0.3px; }
+  header p { color:var(--muted); margin-top:6px; font-size:13px; font-weight:300; }
+  .controls { max-width:1100px; margin:0 auto 28px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .controls label { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .legend-btn { display:flex; align-items:center; gap:6px; background:var(--surface);
+    border:1px solid var(--border); border-radius:6px; padding:5px 12px; cursor:pointer;
+    font-family:inherit; font-size:12px; color:var(--muted); transition:opacity .15s,color .15s; }
+  .legend-btn.active { color:var(--text); }
+  .legend-btn .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .axis-select { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  select { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+    color:var(--text); font-family:inherit; font-size:12px; padding:5px 26px 5px 10px;
+    cursor:pointer; outline:none; appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237d8590'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center; }
+  .chart-wrap { max-width:1100px; margin:0 auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; }
+  canvas { display:block; width:100% !important; }
+  .stat-row { max-width:1100px; margin:20px auto 0; display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+  .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px 20px; }
+  .stat-card .cat-label { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .stat-card .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .stat-card .count { font-size:28px; font-weight:600; font-family:monospace; line-height:1; }
+  .stat-card .sub { font-size:11px; color:var(--muted); margin-top:4px; }
+  footer { max-width:1100px; margin:32px auto 0; font-size:11px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fire Ignition — Thermal &amp; Temporal Analysis</h1>
+  <p>Hour of occurrence vs. Heat Index Level, coloured by ignition cause. Toggle categories to compare.</p>
+</header>
+<div class="controls">
+  <div class="legend" id="legend"></div>
+  <div class="axis-select">
+    <label for="xAxis">X axis</label>
+    <select id="xAxis">
+      <option value="hindex" selected>Heat Index Level</option>
+      <option value="hour">Hour of Day</option>
+    </select>
+    <label for="yAxis">Y axis</label>
+    <select id="yAxis">
+      <option value="hour" selected>Hour of Day</option>
+      <option value="hindex">Heat Index Level</option>
+    </select>
+  </div>
+</div>
+<div class="chart-wrap">
+  <canvas id="chart" height="480"></canvas>
+</div>
+<div class="stat-row" id="stats"></div>
+<footer>
+  Replace FIRE_DATA below with your real records. Each row needs:
+  category (exact string from your CSV), hour (0–23), hindex (1–6).
+</footer>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+  // ── Category definitions ─────────────────────────────────────────────────
+  // Keys match the exact CATEGORY strings in your CSV
+  var CATEGORIES = {
+    'lightning': {
+      label: 'Lightning',
+      color: '#f7c948'
+    },
+    'arson': {
+      label: 'Arson',
+      color: '#ff4b4b'
+    },
+    'cigarette butt': {
+      label: 'Cigarette butt',
+      color: '#ff9f43'
+    },
+    'match or lighter': {
+      label: 'Match / lighter',
+      color: '#fd79a8'
+    },
+    'setting fires in nature and in landfills, burning grasses': {
+      label: 'Burning grasses / landfill',
+      color: '#55efc4'
+    },
+    'unknown': {
+      label: 'Unknown',
+      color: '#a78bfa'
+    },
+    'others': {
+      label: 'Others',
+      color: '#b2bec3'
+    }
+  };
+
+  // ── Sample data ──────────────────────────────────────────────────────────
+  // REPLACE this with your real rows, e.g.:
+  //   var FIRE_DATA = [ {category:"lightning", hour:14, hindex:4}, ... ];
+  function sample(cat, n, hMean, hStd, hourMean, hourStd) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      out.push({
+        category: cat,
+        hindex: Math.min(6, Math.max(1, Math.round(hMean + (Math.random()-0.5)*hStd*2))),
+        hour:   Math.min(23, Math.max(0, Math.round(hourMean + (Math.random()-0.5)*hourStd*2)))
+      });
+    }
+    return out;
+  }
+
+  var FIRE_DATA = [].concat(
+    sample('lightning',                                                          220, 4.8, 1.0, 14, 4),
+    sample('arson',                                                              160, 2.4, 1.4, 21, 3),
+    sample('cigarette butt',                                                     180, 3.2, 1.2, 13, 5),
+    sample('match or lighter',                                                   140, 3.0, 1.3, 12, 5),
+    sample('setting fires in nature and in landfills, burning grasses',          200, 3.5, 1.1, 11, 4),
+    sample('unknown',                                                            120, 3.0, 1.5, 13, 6),
+    sample('others',                                                              90, 3.1, 1.3, 12, 5)
+  );
+
+  // ── State ────────────────────────────────────────────────────────────────
+  var active = {};
+  Object.keys(CATEGORIES).forEach(function (k) { active[k] = true; });
+  var xField = 'hindex', yField = 'hour';
+  var AXIS_LABELS = { hindex: 'Heat Index Level (1–6)', hour: 'Hour of Day (0–23)' };
+
+  // ── Legend ───────────────────────────────────────────────────────────────
+  var legendEl = document.getElementById('legend');
+  Object.keys(CATEGORIES).forEach(function (key) {
+    var meta = CATEGORIES[key];
+    var btn = document.createElement('button');
+    btn.className = 'legend-btn active';
+    btn.dataset.cat = key;
+    btn.innerHTML = '<span class="dot" style="background:' + meta.color + '"></span>' + meta.label;
+    btn.addEventListener('click', function () {
+      active[key] = !active[key];
+      btn.classList.toggle('active', active[key]);
+      btn.style.opacity = active[key] ? '1' : '0.35';
+      render();
+    });
+    legendEl.appendChild(btn);
+  });
+
+  document.getElementById('xAxis').addEventListener('change', function (e) { xField = e.target.value; render(); });
+  document.getElementById('yAxis').addEventListener('change', function (e) { yField = e.target.value; render(); });
+
+  // ── Chart ────────────────────────────────────────────────────────────────
+  function jitter(v, amt) { return v + (Math.random() - 0.5) * amt; }
+
+  var ctx = document.getElementById('chart').getContext('2d');
+  var chart = new Chart(ctx, {
+    type: 'scatter',
+    data: { datasets: [] },
+    options: {
+      animation: { duration: 250 },
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+          titleColor: '#e6edf3', bodyColor: '#7d8590', padding: 10,
+          callbacks: {
+            title: function () { return ''; },
+            label: function (ctx) {
+              var d = ctx.raw;
+              return ['Category: ' + d.cat, 'Hour: ' + d.origY, 'Heat Index: ' + d.origX];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { title: { display:true, text:AXIS_LABELS[xField], color:'#7d8590', font:{size:11} },
+             grid: { color:'#21262d' }, ticks: { color:'#7d8590', font:{size:11} } },
+        y: { title: { display:true, text:AXIS_LABELS[yField], color:'#7d8590', font:{size:11} },
+             grid: { color:'#21262d' }, ticks: { color:'#7d8590', font:{size:11} } }
+      }
+    }
+  });
+
+  function buildDatasets() {
+    var jx = xField === 'hindex' ? 0.08 : 0.35;
+    var jy = yField === 'hour'   ? 0.30 : 0.08;
+    return Object.keys(CATEGORIES)
+      .filter(function (k) { return active[k]; })
+      .map(function (key) {
+        var meta = CATEGORIES[key];
+        var rows = FIRE_DATA.filter(function (r) { return r.category === key; });
+        return {
+          label: meta.label,
+          data: rows.map(function (r) {
+            return { x: jitter(r[xField], jx), y: jitter(r[yField], jy),
+                     origX: r.hindex, origY: r.hour, cat: meta.label };
+          }),
+          backgroundColor: meta.color,
+          pointRadius: 5,
+          pointHoverRadius: 7
+        };
+      });
+  }
+
+  function updateStats() {
+    var el = document.getElementById('stats');
+    el.innerHTML = '';
+    Object.keys(CATEGORIES).forEach(function (key) {
+      var meta = CATEGORIES[key];
+      var cnt = FIRE_DATA.filter(function (r) { return r.category === key; }).length;
+      var pct = ((cnt / FIRE_DATA.length) * 100).toFixed(1);
+      var card = document.createElement('div');
+      card.className = 'stat-card';
+      card.innerHTML =
+        '<div class="cat-label"><span class="dot" style="background:' + meta.color + '"></span>' + meta.label + '</div>' +
+        '<div class="count" style="color:' + meta.color + (active[key] ? '">' : ';opacity:.3">') + cnt.toLocaleString() + '</div>' +
+        '<div class="sub">' + pct + '% of incidents</div>';
+      el.appendChild(card);
+    });
+  }
+
+  function render() {
+    chart.data.datasets = buildDatasets();
+    chart.options.scales.x.title.text = AXIS_LABELS[xField];
+    chart.options.scales.y.title.text = AXIS_LABELS[yField];
+    if (xField === 'hindex') {
+      chart.options.scales.x.min = 0.5; chart.options.scales.x.max = 6.5;
+      chart.options.scales.x.ticks = { color:'#7d8590', font:{size:11}, stepSize:1 };
+    } else {
+      chart.options.scales.x.min = -1; chart.options.scales.x.max = 24;
+      chart.options.scales.x.ticks = { color:'#7d8590', font:{size:11}, stepSize:3 };
+    }
+    if (yField === 'hour') {
+      chart.options.scales.y.min = -1; chart.options.scales.y.max = 24;
+      chart.options.scales.y.ticks = { color:'#7d8590', font:{size:11}, stepSize:3 };
+    } else {
+      chart.options.scales.y.min = 0.5; chart.options.scales.y.max = 6.5;
+      chart.options.scales.y.ticks = { color:'#7d8590', font:{size:11}, stepSize:1 };
+    }
+    chart.update();
+    updateStats();
+  }
+
+  function resizeCanvas() {
+    var w = document.querySelector('.chart-wrap').clientWidth;
+    document.getElementById('chart').style.height = Math.max(340, Math.round(w * 0.44)) + 'px';
+  }
+  window.addEventListener('resize', function () { resizeCanvas(); chart.resize(); });
+  resizeCanvas();
+  render();
+});
+</script>
+</body>
+</html>
