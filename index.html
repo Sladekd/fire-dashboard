@@ -216,6 +216,224 @@
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fire Ignition Analysis</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #0d1117;
+    --surface:    #161b22;
+    --border:     #21262d;
+    --text:       #e6edf3;
+    --muted:      #7d8590;
+    --lightning:  #f7c948;
+    --arson:      #ff4b4b;
+    --human:      #4fc3f7;
+    --accident:   #69db7c;
+    --unknown:    #a78bfa;
+    --dot-r: 5px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+
+  header {
+    max-width: 1100px;
+    margin: 0 auto 36px;
+  }
+  header h1 {
+    font-size: clamp(18px, 3vw, 26px);
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    line-height: 1.2;
+    color: var(--text);
+  }
+  header p {
+    color: var(--muted);
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 300;
+  }
+
+  .controls {
+    max-width: 1100px;
+    margin: 0 auto 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+  .controls label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-right: 4px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .legend-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    transition: border-color .15s, color .15s, opacity .15s;
+  }
+  .legend-btn.active { color: var(--text); }
+  .legend-btn .dot {
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-btn[data-cat="arson"] .dot   { border-radius: 0; transform: rotate(45deg); }
+
+  .axis-select {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    padding: 5px 10px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237d8590'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  .chart-wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+  }
+
+  canvas {
+    display: block;
+    width: 100% !important;
+  }
+
+  .stat-row {
+    max-width: 1100px;
+    margin: 20px auto 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .stat-card .cat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat-card .cat-label .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stat-card .count {
+    font-size: 28px;
+    font-weight: 600;
+    font-family: 'DM Mono', monospace;
+    line-height: 1;
+  }
+  .stat-card .sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  footer {
+    max-width: 1100px;
+    margin: 32px auto 0;
+    font-size: 11px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Fire Ignition — Thermal &amp; Temporal Analysis</h1>
+  <p>Hour of occurrence vs. Heat Index Level, coloured by ignition cause. Toggle categories to compare.</p>
+</header>
+
+<div class="controls">
+  <div class="legend" id="legend"></div>
+  <div class="axis-select">
+    <label for="xAxis">X axis</label>
+    <select id="xAxis">
+      <option value="hindex" selected>Heat Index Level</option>
+      <option value="hour">Hour of Day</option>
+    </select>
+    <label for="yAxis">Y axis</label>
+    <select id="yAxis">
+      <option value="hour" selected>Hour of Day</option>
+      <option value="hindex">Heat Index Level</option>
+    </select>
+  </div>
+</div>
+
+<div class="chart-wrap">
+  <canvas id="chart" height="480"></canvas>
+</div>
+
+<div class="stat-row" id="stats"></div>
+
+<footer>
+  Replace the <code>FIRE_DATA</code> array in the &lt;script&gt; with your real dataset. Fields: <code>category</code>, <code>hour</code> (0–23), <code>hindex</code> (1–6).
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
 // ─── DATA ───────────────────────────────────────────────────────────────────
 fetch('fires_github.csv')
@@ -405,5 +623,7 @@ function resizeCanvas() {
 window.addEventListener("resize", () => { resizeCanvas(); chart.resize(); });
 resizeCanvas();
 </script>
+</body>
+</html>
 </body>
 </html>
